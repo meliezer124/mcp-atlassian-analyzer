@@ -94,6 +94,19 @@ class SLAMixin(JiraClient):
         # Build raw dates if requested
         raw_dates = None
         if include_raw_dates:
+            # Build status changes with timestamps
+            status_changes_data = []
+            for change in issue_dates.status_changes:
+                change_entry = {
+                    "status": change.status,
+                    "entered_at": change.entered_at.isoformat(),
+                }
+                if change.exited_at:
+                    change_entry["exited_at"] = change.exited_at.isoformat()
+                if change.transitioned_by:
+                    change_entry["transitioned_by"] = change.transitioned_by
+                status_changes_data.append(change_entry)
+
             raw_dates = {
                 "created": (
                     issue_dates.created.isoformat() if issue_dates.created else None
@@ -109,6 +122,8 @@ class SLAMixin(JiraClient):
                     if issue_dates.resolution_date
                     else None
                 ),
+                "current_status": issue_dates.current_status,
+                "status_changes": status_changes_data,
             }
 
         return IssueSLAResponse(
