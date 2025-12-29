@@ -1793,3 +1793,132 @@ async def get_issue_dates(
         include_status_summary=include_status_summary,
     )
     return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+
+
+@jira_mcp.tool(tags={"jira", "read"})
+async def get_issue_sla(
+    ctx: Context,
+    issue_key: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Single Jira issue key (e.g., 'PROJ-123'). "
+                "Use this OR issue_keys, not both."
+            ),
+            default=None,
+        ),
+    ] = None,
+    issue_keys: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "List of Jira issue keys for batch operation "
+                "(e.g., ['PROJ-123', 'PROJ-456']). Use this OR issue_key, not both."
+            ),
+            default=None,
+        ),
+    ] = None,
+    metrics: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "List of SLA metrics to calculate. Available metrics: "
+                "'cycle_time' (created to resolved), "
+                "'lead_time' (created to now/resolved), "
+                "'time_in_status' (breakdown by status), "
+                "'due_date_compliance' (met/missed deadline), "
+                "'resolution_time' (in progress to resolved), "
+                "'first_response_time' (created to first transition). "
+                "Defaults to environment config (JIRA_SLA_METRICS)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    working_hours_only: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "If true, calculate durations using only working hours "
+                "(excludes weekends and non-working hours). "
+                "Defaults to environment config (JIRA_SLA_WORKING_HOURS_ONLY)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    include_raw_dates: Annotated[
+        bool,
+        Field(
+            description="Include raw date values (created, updated, due_date, resolution_date)",
+            default=False,
+        ),
+    ] = False,
+) -> str:
+    """Calculate SLA metrics for Jira issues.
+
+    Computes Service Level Agreement metrics including:
+    - Cycle time: Duration from creation to resolution
+    - Lead time: Duration from creation to now (or resolution if resolved)
+    - Time in status: Breakdown of time spent in each workflow status
+    - Due date compliance: Whether the issue was resolved before its due date
+    - Resolution time: Duration from first "In Progress" to resolution
+    - First response time: Duration from creation to first status transition
+
+    Supports working hours filtering to exclude weekends and non-working hours.
+    Working hours settings can be configured via environment variables:
+    - JIRA_SLA_METRICS: Default metrics to calculate
+    - JIRA_SLA_WORKING_HOURS_ONLY: Enable working hours filtering
+    - JIRA_SLA_WORKING_HOURS_START/END: Define working hours (e.g., 09:00-17:00)
+    - JIRA_SLA_WORKING_DAYS: Working days (1=Monday, 7=Sunday)
+    - JIRA_SLA_TIMEZONE: Timezone for calculations
+
+    Use either issue_key for a single issue or issue_keys for batch operations.
+
+    Args:
+        ctx: The FastMCP context.
+        issue_key: Single issue key (use this OR issue_keys).
+        issue_keys: List of issue keys for batch operation (use this OR issue_key).
+        metrics: List of metrics to calculate (defaults to config).
+        working_hours_only: Filter by working hours only (defaults to config).
+        include_raw_dates: Include raw date values in response.
+
+    Returns:
+        JSON string with calculated SLA metrics. For single issues, returns an
+        IssueSLAResponse object. For batch operations, returns an
+        IssueSLABatchResponse with results for all issues.
+
+    Raises:
+        ValueError: If neither issue_key nor issue_keys is provided,
+            or if both are provided.
+    """
+    jira = await get_jira_fetcher(ctx)
+
+    # Validate input - must have exactly one of issue_key or issue_keys
+    if issue_key and issue_keys:
+        raise ValueError(
+            "Provide either 'issue_key' for single issue or "
+            "'issue_keys' for batch, not both."
+        )
+    if not issue_key and not issue_keys:
+        raise ValueError(
+            "Must provide either 'issue_key' for single issue or "
+            "'issue_keys' for batch operation."
+        )
+
+    # Single issue operation
+    if issue_key:
+        result = jira.get_issue_sla(
+            issue_key=issue_key,
+            metrics=metrics,
+            working_hours_only=working_hours_only,
+            include_raw_dates=include_raw_dates,
+        )
+        return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+
+    # Batch operation
+    result = jira.batch_get_issue_sla(
+        issue_keys=issue_keys,
+        metrics=metrics,
+        working_hours_only=working_hours_only,
+        include_raw_dates=include_raw_dates,
+    )
+    return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
