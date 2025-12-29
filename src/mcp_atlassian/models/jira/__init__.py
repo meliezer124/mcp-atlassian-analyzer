@@ -34,6 +34,19 @@ from .metrics import (
     StatusChangeEntry,
     StatusTimeSummary,
 )
+from .sla import (
+    CycleTimeMetric,
+    DueDateComplianceMetric,
+    FirstResponseTimeMetric,
+    IssueSLABatchResponse,
+    IssueSLAMetrics,
+    IssueSLAResponse,
+    LeadTimeMetric,
+    ResolutionTimeMetric,
+    TimeInStatusEntry,
+    TimeInStatusMetric,
+    WorkingHoursConfig,
+)
 
 __all__ = [
     # Common models
@@ -63,4 +76,16 @@ __all__ = [
     "StatusTimeSummary",
     "IssueDatesResponse",
     "IssueDatesBatchResponse",
+    # SLA models
+    "CycleTimeMetric",
+    "LeadTimeMetric",
+    "TimeInStatusEntry",
+    "TimeInStatusMetric",
+    "DueDateComplianceMetric",
+    "ResolutionTimeMetric",
+    "FirstResponseTimeMetric",
+    "IssueSLAMetrics",
+    "IssueSLAResponse",
+    "IssueSLABatchResponse",
+    "WorkingHoursConfig",
 ]
