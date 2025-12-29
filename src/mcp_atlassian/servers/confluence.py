@@ -372,6 +372,127 @@ async def get_labels(
     return json.dumps(formatted_labels, indent=2, ensure_ascii=False)
 
 
+@confluence_mcp.tool(tags={"confluence", "read", "analytics"})
+async def get_page_views(
+    ctx: Context,
+    page_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Confluence page ID to get view analytics for. "
+                "Provide either this OR page_ids for batch operations."
+            ),
+            default=None,
+        ),
+    ] = None,
+    page_ids: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Comma-separated list of page IDs for batch view analytics. "
+                "Use this for getting views for multiple pages at once."
+            ),
+            default=None,
+        ),
+    ] = None,
+    from_date: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Start date for the analytics period (ISO format: YYYY-MM-DD). "
+                "If not provided, returns all-time views."
+            ),
+            default=None,
+        ),
+    ] = None,
+    include_viewers: Annotated[
+        bool,
+        Field(
+            description="Whether to include unique viewer count (default: True)",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Get page view analytics for Confluence pages.
+
+    Returns the total number of views and unique viewers for one or more pages.
+
+    IMPORTANT: This tool is only available on Confluence Cloud. Server/Data Center
+    deployments do not support the Analytics API.
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: Single page ID to get views for.
+        page_ids: Comma-separated list of page IDs for batch operations.
+        from_date: Start date for analytics period (YYYY-MM-DD).
+        include_viewers: Whether to include unique viewer count.
+
+    Returns:
+        JSON string containing view counts and metadata.
+    """
+    from mcp_atlassian.models.confluence import AnalyticsNotAvailableError
+
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Validate input - need either page_id or page_ids
+    if not page_id and not page_ids:
+        return json.dumps(
+            {"error": "Either 'page_id' or 'page_ids' must be provided."},
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    if page_id and page_ids:
+        logger.warning(
+            "Both page_id and page_ids provided; page_id will be used for single-page query."
+        )
+
+    try:
+        if page_id:
+            # Single page query
+            result = confluence_fetcher.get_page_views(
+                page_id=page_id,
+                from_date=from_date,
+                include_viewers=include_viewers,
+            )
+            return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+        else:
+            # Batch query
+            ids_list = [pid.strip() for pid in page_ids.split(",") if pid.strip()]
+            if not ids_list:
+                return json.dumps(
+                    {"error": "No valid page IDs found in page_ids parameter."},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            result = confluence_fetcher.batch_get_page_views(
+                page_ids=ids_list,
+                from_date=from_date,
+                include_viewers=include_viewers,
+            )
+            return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+
+    except AnalyticsNotAvailableError as e:
+        logger.warning(f"Analytics not available: {e}")
+        return json.dumps(
+            {
+                "error": "Analytics not available",
+                "message": str(e),
+                "hint": "The Confluence Analytics API is only available on Cloud instances.",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        logger.error(f"Error getting page views: {e}", exc_info=True)
+        return json.dumps(
+            {"error": f"Failed to get page views: {e}"},
+            indent=2,
+            ensure_ascii=False,
+        )
+
+
 @confluence_mcp.tool(tags={"confluence", "write"})
 @check_write_access
 async def add_label(
