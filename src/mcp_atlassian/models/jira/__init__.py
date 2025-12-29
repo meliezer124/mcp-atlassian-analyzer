@@ -28,6 +28,12 @@ from .project import JiraProject
 from .search import JiraSearchResult
 from .workflow import JiraTransition
 from .worklog import JiraWorklog
+from .metrics import (
+    IssueDatesBatchResponse,
+    IssueDatesResponse,
+    StatusChangeEntry,
+    StatusTimeSummary,
+)
 
 __all__ = [
     # Common models
@@ -52,4 +58,9 @@ __all__ = [
     "JiraIssueLink",
     "JiraLinkedIssue",
     "JiraLinkedIssueFields",
+    # Metrics models
+    "StatusChangeEntry",
+    "StatusTimeSummary",
+    "IssueDatesResponse",
+    "IssueDatesBatchResponse",
 ]
