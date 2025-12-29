@@ -353,9 +353,9 @@ class IssueSLAResponse(ApiModel):
     metrics: IssueSLAMetrics = Field(
         description="Calculated SLA metrics"
     )
-    raw_dates: dict[str, str | None] | None = Field(
+    raw_dates: dict[str, Any] | None = Field(
         default=None,
-        description="Raw date values if requested"
+        description="Raw date values if requested (includes status_changes list)"
     )
 
     @classmethod
