@@ -103,8 +103,8 @@ Before merging a PR:
 | 1 | `feature/phase1-jira-dates` | Jira Raw Dates Tool | 8 files | ✅ Completed |
 | 2 | `feature/phase2-jira-sla` | Jira SLA Metrics Tool | 6 files | ✅ Completed |
 | 3 | `feature/phase3-confluence-views` | Confluence Page Views Tool | 8 files | ✅ Completed |
-| 4 | `feature/phase4-confluence-analytics` | Confluence Analytics Tool | 4 files | 🔲 Pending |
-| 5 | `feature/phase5-space-analytics` | Confluence Space Analytics Tool | 3 files | 🔲 Pending |
+| 4 | `feature/phase4-confluence-analytics` | Confluence Analytics Tool | 4 files | ✅ Completed |
+| 5 | `feature/phase5-space-analytics` | Confluence Space Analytics Tool | 3 files | ✅ Completed |
 | 6 | `feature/phase6-docs-tests` | Documentation & Testing | 5 files | 🔲 Pending |
 
 ### Completed Tools
