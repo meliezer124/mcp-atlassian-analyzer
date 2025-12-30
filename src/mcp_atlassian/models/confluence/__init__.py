@@ -12,12 +12,20 @@ Key models:
 - ConfluenceVersion: Content versioning information
 - PageViewsResponse: Analytics for page views (Cloud only)
 - PageViewsBatchResponse: Batch analytics response
+- PageAnalyticsResponse: Calculated engagement metrics (Cloud only)
+- PageAnalyticsBatchResponse: Batch analytics metrics response
 """
 
 from .analytics import (
     AnalyticsNotAvailableError,
+    EngagementScoreMetric,
+    PageAnalyticsBatchResponse,
+    PageAnalyticsResponse,
     PageViewsBatchResponse,
     PageViewsResponse,
+    StalenessMetric,
+    ViewerDiversityMetric,
+    ViewVelocityMetric,
 )
 from .comment import ConfluenceComment
 from .common import ConfluenceAttachment, ConfluenceUser
@@ -39,6 +47,12 @@ __all__ = [
     "ConfluenceSearchResult",
     "ConfluenceUserSearchResult",
     "ConfluenceUserSearchResults",
+    "EngagementScoreMetric",
+    "PageAnalyticsBatchResponse",
+    "PageAnalyticsResponse",
     "PageViewsBatchResponse",
     "PageViewsResponse",
+    "StalenessMetric",
+    "ViewerDiversityMetric",
+    "ViewVelocityMetric",
 ]

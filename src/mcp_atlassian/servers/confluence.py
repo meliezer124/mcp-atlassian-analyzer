@@ -493,6 +493,152 @@ async def get_page_views(
         )
 
 
+@confluence_mcp.tool(tags={"confluence", "read", "analytics"})
+async def get_page_analytics(
+    ctx: Context,
+    page_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Confluence page ID to get analytics for. "
+                "Provide either this OR page_ids for batch operations."
+            ),
+            default=None,
+        ),
+    ] = None,
+    page_ids: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Comma-separated list of page IDs for batch analytics. "
+                "Use this for getting analytics for multiple pages at once."
+            ),
+            default=None,
+        ),
+    ] = None,
+    metrics: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Comma-separated list of metrics to calculate. "
+                "Available: engagement_score, view_velocity, staleness, viewer_diversity. "
+                "If not provided, uses environment defaults (engagement_score, staleness)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    period_days: Annotated[
+        int,
+        Field(
+            description="Analysis period in days (default: 30)",
+            default=30,
+            ge=1,
+            le=365,
+        ),
+    ] = 30,
+    include_raw_data: Annotated[
+        bool,
+        Field(
+            description="Whether to include raw view data alongside calculated metrics",
+            default=False,
+        ),
+    ] = False,
+) -> str:
+    """Get calculated engagement analytics for Confluence pages.
+
+    Calculates engagement metrics like engagement score, view velocity (trending),
+    staleness, and viewer diversity based on page view data.
+
+    IMPORTANT: This tool is only available on Confluence Cloud. Server/Data Center
+    deployments do not support the Analytics API.
+
+    Available metrics:
+    - engagement_score: Composite rating (0-100) based on views, viewers, and recency
+    - view_velocity: Trend in view activity (increasing/decreasing/stable)
+    - staleness: Content freshness (active/stale/abandoned)
+    - viewer_diversity: Breadth of audience (narrow/moderate/broad)
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: Single page ID to analyze.
+        page_ids: Comma-separated list of page IDs for batch operations.
+        metrics: Comma-separated list of metrics to calculate.
+        period_days: Analysis period in days (1-365).
+        include_raw_data: Whether to include raw view counts.
+
+    Returns:
+        JSON string containing calculated metrics and optional raw data.
+    """
+    from mcp_atlassian.models.confluence import AnalyticsNotAvailableError
+
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Validate input - need either page_id or page_ids
+    if not page_id and not page_ids:
+        return json.dumps(
+            {"error": "Either 'page_id' or 'page_ids' must be provided."},
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    if page_id and page_ids:
+        logger.warning(
+            "Both page_id and page_ids provided; page_id will be used for single-page query."
+        )
+
+    # Parse metrics list
+    metrics_list = None
+    if metrics:
+        metrics_list = [m.strip() for m in metrics.split(",") if m.strip()]
+
+    try:
+        if page_id:
+            # Single page query
+            result = confluence_fetcher.get_page_analytics(
+                page_id=page_id,
+                metrics=metrics_list,
+                period_days=period_days,
+                include_raw_data=include_raw_data,
+            )
+            return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+        else:
+            # Batch query
+            ids_list = [pid.strip() for pid in page_ids.split(",") if pid.strip()]
+            if not ids_list:
+                return json.dumps(
+                    {"error": "No valid page IDs found in page_ids parameter."},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            result = confluence_fetcher.batch_get_page_analytics(
+                page_ids=ids_list,
+                metrics=metrics_list,
+                period_days=period_days,
+                include_raw_data=include_raw_data,
+            )
+            return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+
+    except AnalyticsNotAvailableError as e:
+        logger.warning(f"Analytics not available: {e}")
+        return json.dumps(
+            {
+                "error": "Analytics not available",
+                "message": str(e),
+                "hint": "The Confluence Analytics API is only available on Cloud instances.",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        logger.error(f"Error getting page analytics: {e}", exc_info=True)
+        return json.dumps(
+            {"error": f"Failed to get page analytics: {e}"},
+            indent=2,
+            ensure_ascii=False,
+        )
+
+
 @confluence_mcp.tool(tags={"confluence", "write"})
 @check_write_access
 async def add_label(

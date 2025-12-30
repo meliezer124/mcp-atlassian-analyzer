@@ -163,3 +163,234 @@ class AnalyticsNotAvailableError(Exception):
     """
 
     pass
+
+
+# =============================================================================
+# Phase 4: Page Analytics Metric Models
+# =============================================================================
+
+
+class EngagementScoreMetric(ApiModel):
+    """
+    Model representing an engagement score for a Confluence page.
+
+    The engagement score is a composite rating (0-100) based on views,
+    unique viewers, and recency of activity.
+    """
+
+    value: int = Field(
+        ge=0, le=100,
+        description="Engagement score (0-100)"
+    )
+    components: dict[str, int] = Field(
+        default_factory=dict,
+        description="Breakdown of score components (view_score, viewer_score, recency_score)"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary."""
+        return {
+            "value": self.value,
+            "components": self.components,
+        }
+
+
+class ViewVelocityMetric(ApiModel):
+    """
+    Model representing view velocity (trend in view activity) for a page.
+
+    Compares current period views against previous period to determine
+    if activity is increasing, decreasing, or stable.
+    """
+
+    trend: str = Field(
+        description="Trend direction: 'increasing', 'decreasing', or 'stable'"
+    )
+    current_period_views: int = Field(
+        default=0,
+        description="Views in the current period"
+    )
+    previous_period_views: int = Field(
+        default=0,
+        description="Views in the previous period"
+    )
+    change_percent: float = Field(
+        default=0.0,
+        description="Percentage change between periods"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary."""
+        return {
+            "trend": self.trend,
+            "current_period_views": self.current_period_views,
+            "previous_period_views": self.previous_period_views,
+            "change_percent": round(self.change_percent, 2),
+        }
+
+
+class StalenessMetric(ApiModel):
+    """
+    Model representing content freshness for a page.
+
+    Categorizes pages as active, stale, or abandoned based on
+    days since last view and last edit.
+    """
+
+    days_since_last_view: int | None = Field(
+        default=None,
+        description="Days since the page was last viewed (None if never viewed)"
+    )
+    days_since_last_edit: int | None = Field(
+        default=None,
+        description="Days since the page was last edited"
+    )
+    status: str = Field(
+        description="Staleness status: 'active', 'stale', or 'abandoned'"
+    )
+    stale_threshold_days: int = Field(
+        default=90,
+        description="Threshold in days for considering a page stale"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary."""
+        result: dict[str, Any] = {
+            "status": self.status,
+            "stale_threshold_days": self.stale_threshold_days,
+        }
+        if self.days_since_last_view is not None:
+            result["days_since_last_view"] = self.days_since_last_view
+        if self.days_since_last_edit is not None:
+            result["days_since_last_edit"] = self.days_since_last_edit
+        return result
+
+
+class ViewerDiversityMetric(ApiModel):
+    """
+    Model representing the breadth of audience for a page.
+
+    Measures the ratio of unique viewers to total views.
+    """
+
+    ratio: float = Field(
+        ge=0.0, le=1.0,
+        description="Ratio of unique viewers to total views (0-1)"
+    )
+    interpretation: str = Field(
+        description="Human-readable interpretation: 'narrow', 'moderate', or 'broad'"
+    )
+    unique_viewers: int = Field(
+        default=0,
+        description="Number of unique viewers"
+    )
+    total_views: int = Field(
+        default=0,
+        description="Total number of views"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary."""
+        return {
+            "ratio": round(self.ratio, 3),
+            "interpretation": self.interpretation,
+            "unique_viewers": self.unique_viewers,
+            "total_views": self.total_views,
+        }
+
+
+class PageAnalyticsResponse(ApiModel):
+    """
+    Model representing calculated analytics metrics for a single page.
+
+    Contains computed engagement metrics based on view data.
+    """
+
+    page_id: str = Field(description="The Confluence page ID")
+    page_title: str | None = Field(
+        default=None,
+        description="The page title (if available)"
+    )
+    period_days: int = Field(
+        description="The analysis period in days"
+    )
+    metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Calculated metrics (engagement_score, view_velocity, staleness, viewer_diversity)"
+    )
+    raw_data: dict[str, Any] | None = Field(
+        default=None,
+        description="Raw view data (if include_raw_data=True)"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary for API response."""
+        result: dict[str, Any] = {
+            "page_id": self.page_id,
+            "period_days": self.period_days,
+            "metrics": {},
+        }
+        if self.page_title:
+            result["page_title"] = self.page_title
+
+        # Convert each metric to its simplified form
+        for metric_name, metric_value in self.metrics.items():
+            if hasattr(metric_value, "to_simplified_dict"):
+                result["metrics"][metric_name] = metric_value.to_simplified_dict()
+            else:
+                result["metrics"][metric_name] = metric_value
+
+        if self.raw_data:
+            result["raw_data"] = self.raw_data
+
+        return result
+
+
+class PageAnalyticsBatchResponse(ApiModel):
+    """
+    Model representing batch page analytics response for multiple pages.
+
+    Wraps multiple PageAnalyticsResponse objects with metadata.
+    """
+
+    pages: list[PageAnalyticsResponse] = Field(
+        default_factory=list,
+        description="List of page analytics responses"
+    )
+    total_count: int = Field(
+        default=0,
+        description="Total number of pages processed"
+    )
+    success_count: int = Field(
+        default=0,
+        description="Number of pages successfully processed"
+    )
+    error_count: int = Field(
+        default=0,
+        description="Number of pages that failed to process"
+    )
+    errors: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="List of errors for failed pages"
+    )
+    period_days: int = Field(
+        description="The analysis period in days"
+    )
+    metrics_calculated: list[str] = Field(
+        default_factory=list,
+        description="List of metrics that were calculated"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary for API response."""
+        result: dict[str, Any] = {
+            "total_count": self.total_count,
+            "success_count": self.success_count,
+            "error_count": self.error_count,
+            "period_days": self.period_days,
+            "metrics_calculated": self.metrics_calculated,
+            "pages": [page.to_simplified_dict() for page in self.pages],
+        }
+        if self.errors:
+            result["errors"] = self.errors
+        return result
