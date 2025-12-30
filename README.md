@@ -740,19 +740,25 @@ Here's a complete example of setting up multi-user authentication with streamabl
 
 - `confluence_search`: Search Confluence content using CQL
 - `confluence_get_page`: Get content of a specific page
+- `confluence_get_page_views`: Get page view counts and unique viewers (Cloud only)
+- `confluence_get_page_analytics`: Get engagement metrics for pages (Cloud only)
+- `confluence_get_space_analytics`: Get aggregated analytics for a space (Cloud only)
 - `confluence_create_page`: Create a new page
 - `confluence_update_page`: Update an existing page
 
 <details> <summary>View All Tools</summary>
 
-| Operation | Jira Tools                          | Confluence Tools               |
-|-----------|-------------------------------------|--------------------------------|
-| **Read**  | `jira_search`                       | `confluence_search`            |
-|           | `jira_get_issue`                    | `confluence_get_page`          |
-|           | `jira_get_issue_dates`              | `confluence_get_page_children` |
-|           | `jira_get_issue_sla`                | `confluence_get_comments`      |
-|           | `jira_get_all_projects`             | `confluence_get_labels`        |
-|           | `jira_get_project_issues`           | `confluence_search_user`       |
+| Operation | Jira Tools                          | Confluence Tools                 |
+|-----------|-------------------------------------|----------------------------------|
+| **Read**  | `jira_search`                       | `confluence_search`              |
+|           | `jira_get_issue`                    | `confluence_get_page`            |
+|           | `jira_get_issue_dates`              | `confluence_get_page_children`   |
+|           | `jira_get_issue_sla`                | `confluence_get_comments`        |
+|           | `jira_get_all_projects`             | `confluence_get_labels`          |
+|           | `jira_get_project_issues`           | `confluence_search_user`         |
+|           |                                     | `confluence_get_page_views`*     |
+|           |                                     | `confluence_get_page_analytics`* |
+|           |                                     | `confluence_get_space_analytics`*|
 |           | `jira_get_worklog`                  |                                |
 |           | `jira_get_transitions`              |                                |
 |           | `jira_search_fields`                |                                |
@@ -782,7 +788,7 @@ Here's a complete example of setting up multi-user authentication with streamabl
 
 </details>
 
-*Tool only available on Jira Cloud
+*Tool only available on Cloud (not Server/Data Center)
 
 </details>
 
