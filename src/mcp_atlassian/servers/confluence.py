@@ -639,6 +639,136 @@ async def get_page_analytics(
         )
 
 
+@confluence_mcp.tool(tags={"confluence", "read", "analytics"})
+async def get_space_analytics(
+    ctx: Context,
+    space_key: Annotated[
+        str,
+        Field(
+            description=(
+                "The key of the Confluence space to analyze (e.g., 'DEV', 'TEAM'). "
+                "Space keys are typically short uppercase identifiers."
+            ),
+        ),
+    ],
+    period_days: Annotated[
+        int,
+        Field(
+            description="Analysis period in days (default: 30)",
+            default=30,
+            ge=1,
+            le=365,
+        ),
+    ] = 30,
+    limit: Annotated[
+        int,
+        Field(
+            description="Max pages to return in each category (default: 10)",
+            default=10,
+            ge=1,
+            le=50,
+        ),
+    ] = 10,
+    stale_threshold_days: Annotated[
+        int,
+        Field(
+            description="Days without views to consider a page stale (default: 90)",
+            default=90,
+            ge=7,
+            le=365,
+        ),
+    ] = 90,
+    include_summary: Annotated[
+        bool,
+        Field(
+            description="Include space-level summary statistics",
+            default=True,
+        ),
+    ] = True,
+    include_popular_pages: Annotated[
+        bool,
+        Field(
+            description="Include top pages by view count",
+            default=True,
+        ),
+    ] = True,
+    include_trending_pages: Annotated[
+        bool,
+        Field(
+            description="Include pages with increasing view velocity",
+            default=True,
+        ),
+    ] = True,
+    include_stale_pages: Annotated[
+        bool,
+        Field(
+            description="Include pages that haven't been viewed recently",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Get aggregated analytics for a Confluence space.
+
+    Analyzes all pages in a space to provide insights on:
+    - Summary: Overall space statistics (total pages, views, engagement)
+    - Popular pages: Top pages by view count
+    - Trending pages: Pages with increasing view velocity
+    - Stale pages: Content that hasn't been viewed recently
+
+    IMPORTANT: This tool is only available on Confluence Cloud. Server/Data Center
+    deployments do not support the Analytics API.
+
+    Args:
+        ctx: The FastMCP context.
+        space_key: The space key to analyze.
+        period_days: Analysis period in days (1-365).
+        limit: Maximum pages per category.
+        stale_threshold_days: Days without views to mark as stale.
+        include_summary: Include space summary statistics.
+        include_popular_pages: Include popular pages list.
+        include_trending_pages: Include trending pages list.
+        include_stale_pages: Include stale pages list.
+
+    Returns:
+        JSON string containing space analytics with requested sections.
+    """
+    from mcp_atlassian.models.confluence import AnalyticsNotAvailableError
+
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    try:
+        result = confluence_fetcher.get_space_analytics(
+            space_key=space_key,
+            period_days=period_days,
+            limit=limit,
+            stale_threshold_days=stale_threshold_days,
+            include_summary=include_summary,
+            include_popular_pages=include_popular_pages,
+            include_trending_pages=include_trending_pages,
+            include_stale_pages=include_stale_pages,
+        )
+        return json.dumps(result.to_simplified_dict(), indent=2, ensure_ascii=False)
+
+    except AnalyticsNotAvailableError as e:
+        logger.warning(f"Analytics not available: {e}")
+        return json.dumps(
+            {
+                "error": "Analytics not available",
+                "message": str(e),
+                "hint": "The Confluence Analytics API is only available on Cloud instances.",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        logger.error(f"Error getting space analytics: {e}", exc_info=True)
+        return json.dumps(
+            {"error": f"Failed to get space analytics: {e}"},
+            indent=2,
+            ensure_ascii=False,
+        )
+
+
 @confluence_mcp.tool(tags={"confluence", "write"})
 @check_write_access
 async def add_label(

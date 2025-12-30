@@ -14,6 +14,7 @@ Key models:
 - PageViewsBatchResponse: Batch analytics response
 - PageAnalyticsResponse: Calculated engagement metrics (Cloud only)
 - PageAnalyticsBatchResponse: Batch analytics metrics response
+- SpaceAnalyticsResponse: Space-level analytics (Cloud only)
 """
 
 from .analytics import (
@@ -23,6 +24,9 @@ from .analytics import (
     PageAnalyticsResponse,
     PageViewsBatchResponse,
     PageViewsResponse,
+    SpaceAnalyticsResponse,
+    SpacePageSummary,
+    SpaceSummary,
     StalenessMetric,
     ViewerDiversityMetric,
     ViewVelocityMetric,
@@ -52,6 +56,9 @@ __all__ = [
     "PageAnalyticsResponse",
     "PageViewsBatchResponse",
     "PageViewsResponse",
+    "SpaceAnalyticsResponse",
+    "SpacePageSummary",
+    "SpaceSummary",
     "StalenessMetric",
     "ViewerDiversityMetric",
     "ViewVelocityMetric",

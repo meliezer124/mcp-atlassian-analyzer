@@ -394,3 +394,190 @@ class PageAnalyticsBatchResponse(ApiModel):
         if self.errors:
             result["errors"] = self.errors
         return result
+
+
+# =============================================================================
+# Phase 5: Space Analytics Models
+# =============================================================================
+
+
+class SpacePageSummary(ApiModel):
+    """
+    Model representing a page summary within space analytics.
+
+    Used for popular_pages, trending_pages, and stale_pages lists.
+    """
+
+    page_id: str = Field(description="The Confluence page ID")
+    page_title: str = Field(description="The page title")
+    total_views: int = Field(default=0, description="Total views in the period")
+    unique_viewers: int = Field(default=0, description="Unique viewers in the period")
+    engagement_score: int | None = Field(
+        default=None,
+        description="Engagement score (0-100) if calculated"
+    )
+    trend: str | None = Field(
+        default=None,
+        description="View trend: 'increasing', 'decreasing', or 'stable'"
+    )
+    change_percent: float | None = Field(
+        default=None,
+        description="Percentage change in views from previous period"
+    )
+    staleness_status: str | None = Field(
+        default=None,
+        description="Staleness status: 'active', 'stale', or 'abandoned'"
+    )
+    days_since_last_view: int | None = Field(
+        default=None,
+        description="Days since the page was last viewed"
+    )
+    page_url: str | None = Field(
+        default=None,
+        description="URL to the page (if available)"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary."""
+        result: dict[str, Any] = {
+            "page_id": self.page_id,
+            "page_title": self.page_title,
+            "total_views": self.total_views,
+            "unique_viewers": self.unique_viewers,
+        }
+        if self.engagement_score is not None:
+            result["engagement_score"] = self.engagement_score
+        if self.trend is not None:
+            result["trend"] = self.trend
+        if self.change_percent is not None:
+            result["change_percent"] = round(self.change_percent, 2)
+        if self.staleness_status is not None:
+            result["staleness_status"] = self.staleness_status
+        if self.days_since_last_view is not None:
+            result["days_since_last_view"] = self.days_since_last_view
+        if self.page_url is not None:
+            result["page_url"] = self.page_url
+        return result
+
+
+class SpaceSummary(ApiModel):
+    """
+    Model representing aggregate statistics for a Confluence space.
+
+    Provides overall metrics across all pages in the space.
+    """
+
+    total_pages: int = Field(default=0, description="Total number of pages in space")
+    pages_analyzed: int = Field(
+        default=0,
+        description="Number of pages included in analytics"
+    )
+    total_views: int = Field(
+        default=0,
+        description="Total views across all analyzed pages"
+    )
+    total_unique_viewers: int = Field(
+        default=0,
+        description="Total unique viewers across all analyzed pages"
+    )
+    average_views_per_page: float = Field(
+        default=0.0,
+        description="Average views per page"
+    )
+    average_engagement_score: float = Field(
+        default=0.0,
+        description="Average engagement score across pages"
+    )
+    active_pages_count: int = Field(
+        default=0,
+        description="Number of active pages (viewed recently)"
+    )
+    stale_pages_count: int = Field(
+        default=0,
+        description="Number of stale pages"
+    )
+    abandoned_pages_count: int = Field(
+        default=0,
+        description="Number of abandoned pages"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary."""
+        return {
+            "total_pages": self.total_pages,
+            "pages_analyzed": self.pages_analyzed,
+            "total_views": self.total_views,
+            "total_unique_viewers": self.total_unique_viewers,
+            "average_views_per_page": round(self.average_views_per_page, 2),
+            "average_engagement_score": round(self.average_engagement_score, 1),
+            "active_pages_count": self.active_pages_count,
+            "stale_pages_count": self.stale_pages_count,
+            "abandoned_pages_count": self.abandoned_pages_count,
+        }
+
+
+class SpaceAnalyticsResponse(ApiModel):
+    """
+    Model representing complete analytics for a Confluence space.
+
+    Includes space summary, popular pages, trending pages, and stale pages.
+    """
+
+    space_key: str = Field(description="The Confluence space key")
+    space_name: str | None = Field(
+        default=None,
+        description="The space name (if available)"
+    )
+    period_days: int = Field(description="The analysis period in days")
+    summary: SpaceSummary | None = Field(
+        default=None,
+        description="Aggregate space statistics"
+    )
+    popular_pages: list[SpacePageSummary] = Field(
+        default_factory=list,
+        description="Top pages by view count"
+    )
+    trending_pages: list[SpacePageSummary] = Field(
+        default_factory=list,
+        description="Pages with increasing view velocity"
+    )
+    stale_pages: list[SpacePageSummary] = Field(
+        default_factory=list,
+        description="Pages that haven't been viewed recently"
+    )
+    from_date: str | None = Field(
+        default=None,
+        description="Start date for the analytics period"
+    )
+    to_date: str | None = Field(
+        default=None,
+        description="End date for the analytics period"
+    )
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary for API response."""
+        result: dict[str, Any] = {
+            "space_key": self.space_key,
+            "period_days": self.period_days,
+        }
+        if self.space_name:
+            result["space_name"] = self.space_name
+        if self.summary:
+            result["summary"] = self.summary.to_simplified_dict()
+        if self.popular_pages:
+            result["popular_pages"] = [
+                p.to_simplified_dict() for p in self.popular_pages
+            ]
+        if self.trending_pages:
+            result["trending_pages"] = [
+                p.to_simplified_dict() for p in self.trending_pages
+            ]
+        if self.stale_pages:
+            result["stale_pages"] = [
+                p.to_simplified_dict() for p in self.stale_pages
+            ]
+        if self.from_date:
+            result["from_date"] = self.from_date
+        if self.to_date:
+            result["to_date"] = self.to_date
+        return result

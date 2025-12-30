@@ -13,6 +13,9 @@ from mcp_atlassian.models.confluence import (
     PageAnalyticsResponse,
     PageViewsBatchResponse,
     PageViewsResponse,
+    SpaceAnalyticsResponse,
+    SpacePageSummary,
+    SpaceSummary,
     StalenessMetric,
     ViewerDiversityMetric,
     ViewVelocityMetric,
@@ -831,3 +834,288 @@ class TestAvailableMetrics:
         assert "staleness" in AVAILABLE_METRICS
         assert "viewer_diversity" in AVAILABLE_METRICS
         assert len(AVAILABLE_METRICS) == 4
+
+
+# =============================================================================
+# Phase 5: Space Analytics Tests
+# =============================================================================
+
+
+class TestSpacePageSummary:
+    """Tests for the SpacePageSummary model."""
+
+    def test_model_creation(self):
+        """Test creating a SpacePageSummary."""
+        summary = SpacePageSummary(
+            page_id="123",
+            page_title="Test Page",
+            total_views=100,
+            unique_viewers=25,
+            engagement_score=75,
+            trend="increasing",
+            change_percent=50.5,
+        )
+        assert summary.page_id == "123"
+        assert summary.page_title == "Test Page"
+        assert summary.engagement_score == 75
+        assert summary.trend == "increasing"
+
+    def test_to_simplified_dict(self):
+        """Test serialization with optional fields."""
+        summary = SpacePageSummary(
+            page_id="123",
+            page_title="Test Page",
+            total_views=50,
+            unique_viewers=10,
+        )
+        result = summary.to_simplified_dict()
+        assert result["page_id"] == "123"
+        assert result["total_views"] == 50
+        assert "engagement_score" not in result  # None excluded
+        assert "trend" not in result
+
+    def test_to_simplified_dict_with_all_fields(self):
+        """Test serialization with all optional fields."""
+        summary = SpacePageSummary(
+            page_id="456",
+            page_title="Full Page",
+            total_views=200,
+            unique_viewers=50,
+            engagement_score=85,
+            trend="stable",
+            change_percent=2.5,
+            staleness_status="active",
+            days_since_last_view=3,
+        )
+        result = summary.to_simplified_dict()
+        assert result["engagement_score"] == 85
+        assert result["trend"] == "stable"
+        assert result["change_percent"] == 2.5
+        assert result["staleness_status"] == "active"
+        assert result["days_since_last_view"] == 3
+
+
+class TestSpaceSummary:
+    """Tests for the SpaceSummary model."""
+
+    def test_model_creation(self):
+        """Test creating a SpaceSummary."""
+        summary = SpaceSummary(
+            total_pages=50,
+            pages_analyzed=45,
+            total_views=1000,
+            total_unique_viewers=200,
+            average_views_per_page=22.22,
+            average_engagement_score=65.5,
+            active_pages_count=20,
+            stale_pages_count=15,
+            abandoned_pages_count=10,
+        )
+        assert summary.total_pages == 50
+        assert summary.pages_analyzed == 45
+        assert summary.active_pages_count == 20
+
+    def test_to_simplified_dict(self):
+        """Test serialization rounds floats."""
+        summary = SpaceSummary(
+            total_pages=10,
+            pages_analyzed=10,
+            total_views=100,
+            total_unique_viewers=30,
+            average_views_per_page=10.333333,
+            average_engagement_score=55.555,
+            active_pages_count=5,
+            stale_pages_count=3,
+            abandoned_pages_count=2,
+        )
+        result = summary.to_simplified_dict()
+        assert result["average_views_per_page"] == 10.33
+        assert result["average_engagement_score"] == 55.6
+
+
+class TestSpaceAnalyticsResponse:
+    """Tests for the SpaceAnalyticsResponse model."""
+
+    def test_model_creation(self):
+        """Test creating a SpaceAnalyticsResponse."""
+        response = SpaceAnalyticsResponse(
+            space_key="DEV",
+            space_name="Development",
+            period_days=30,
+            from_date="2025-12-01",
+            to_date="2025-12-30",
+        )
+        assert response.space_key == "DEV"
+        assert response.space_name == "Development"
+        assert response.period_days == 30
+
+    def test_to_simplified_dict_minimal(self):
+        """Test serialization with minimal fields."""
+        response = SpaceAnalyticsResponse(
+            space_key="TEST",
+            period_days=30,
+        )
+        result = response.to_simplified_dict()
+        assert result["space_key"] == "TEST"
+        assert result["period_days"] == 30
+        assert "space_name" not in result
+        assert "summary" not in result
+        assert "popular_pages" not in result
+
+    def test_to_simplified_dict_full(self):
+        """Test serialization with all fields."""
+        summary = SpaceSummary(
+            total_pages=10,
+            pages_analyzed=10,
+            total_views=100,
+            total_unique_viewers=20,
+            average_views_per_page=10.0,
+            average_engagement_score=50.0,
+            active_pages_count=5,
+            stale_pages_count=3,
+            abandoned_pages_count=2,
+        )
+        popular = [
+            SpacePageSummary(
+                page_id="1",
+                page_title="Popular Page",
+                total_views=50,
+                unique_viewers=15,
+            )
+        ]
+        response = SpaceAnalyticsResponse(
+            space_key="TEST",
+            space_name="Test Space",
+            period_days=30,
+            summary=summary,
+            popular_pages=popular,
+            from_date="2025-12-01",
+            to_date="2025-12-30",
+        )
+        result = response.to_simplified_dict()
+        assert result["space_name"] == "Test Space"
+        assert "summary" in result
+        assert result["summary"]["total_pages"] == 10
+        assert len(result["popular_pages"]) == 1
+        assert result["popular_pages"][0]["page_title"] == "Popular Page"
+
+
+class TestGetSpaceAnalytics:
+    """Tests for the get_space_analytics method."""
+
+    def test_get_space_analytics_server_error(self):
+        """Test space analytics fails on Server/DC."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = False
+
+        with pytest.raises(AnalyticsNotAvailableError):
+            AnalyticsMixin.get_space_analytics(mixin, space_key="TEST")
+
+    def test_get_space_analytics_success(self):
+        """Test successful space analytics retrieval."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = True
+        mixin.confluence = MagicMock()
+
+        # Mock space info
+        mixin.confluence.get_space.return_value = {"name": "Test Space"}
+
+        # Mock CQL results
+        mixin.confluence.cql.return_value = {
+            "results": [
+                {"content": {"id": "1", "title": "Page 1"}},
+                {"content": {"id": "2", "title": "Page 2"}},
+            ]
+        }
+
+        # Mock get_page_views
+        def mock_get_page_views(page_id, from_date=None, *, include_viewers=True):
+            return PageViewsResponse(
+                page_id=page_id,
+                page_title=f"Page {page_id}",
+                total_views=50 if page_id == "1" else 10,
+                unique_viewers=10 if page_id == "1" else 5,
+            )
+
+        mixin.get_page_views = mock_get_page_views
+
+        # Mock engagement and velocity calculators
+        mixin._calculate_engagement_score = MagicMock(
+            return_value=EngagementScoreMetric(value=50, components={})
+        )
+        mixin._calculate_view_velocity = MagicMock(
+            return_value=ViewVelocityMetric(
+                trend="stable",
+                current_period_views=50,
+                previous_period_views=50,
+                change_percent=0.0,
+            )
+        )
+
+        with patch.object(AnalyticsConfig, "from_env") as mock_config:
+            mock_config.return_value = AnalyticsConfig()
+
+            result = AnalyticsMixin.get_space_analytics(
+                mixin,
+                space_key="TEST",
+                limit=5,
+            )
+
+            assert result.space_key == "TEST"
+            assert result.space_name == "Test Space"
+            assert result.summary is not None
+            assert result.summary.pages_analyzed == 2
+
+    def test_get_space_analytics_empty_space(self):
+        """Test space analytics with no pages."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = True
+        mixin.confluence = MagicMock()
+
+        # Mock space info
+        mixin.confluence.get_space.return_value = {"name": "Empty Space"}
+
+        # Mock empty CQL results
+        mixin.confluence.cql.return_value = {"results": []}
+
+        with patch.object(AnalyticsConfig, "from_env") as mock_config:
+            mock_config.return_value = AnalyticsConfig()
+
+            result = AnalyticsMixin.get_space_analytics(
+                mixin,
+                space_key="EMPTY",
+            )
+
+            assert result.space_key == "EMPTY"
+            assert result.summary is None  # No pages to summarize
+            assert len(result.popular_pages) == 0
+            assert len(result.trending_pages) == 0
+            assert len(result.stale_pages) == 0
+
+    def test_get_space_analytics_selective_includes(self):
+        """Test space analytics with selective includes."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = True
+        mixin.confluence = MagicMock()
+
+        mixin.confluence.get_space.return_value = {"name": "Test"}
+        mixin.confluence.cql.return_value = {"results": []}
+
+        with patch.object(AnalyticsConfig, "from_env") as mock_config:
+            mock_config.return_value = AnalyticsConfig()
+
+            result = AnalyticsMixin.get_space_analytics(
+                mixin,
+                space_key="TEST",
+                include_summary=False,
+                include_popular_pages=False,
+                include_trending_pages=False,
+                include_stale_pages=True,
+            )
+
+            # Should return response with only stale_pages enabled
+            assert result.space_key == "TEST"

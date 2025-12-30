@@ -20,6 +20,9 @@ from ..models.confluence import (
     PageAnalyticsResponse,
     PageViewsBatchResponse,
     PageViewsResponse,
+    SpaceAnalyticsResponse,
+    SpacePageSummary,
+    SpaceSummary,
     StalenessMetric,
     ViewerDiversityMetric,
     ViewVelocityMetric,
@@ -608,4 +611,251 @@ class AnalyticsMixin(ConfluenceClient):
             errors=errors,
             period_days=period_days,
             metrics_calculated=metrics,
+        )
+
+    # =========================================================================
+    # Phase 5: Space Analytics
+    # =========================================================================
+
+    def get_space_analytics(
+        self,
+        space_key: str,
+        period_days: int | None = None,
+        limit: int = 10,
+        stale_threshold_days: int = 90,
+        *,
+        include_summary: bool = True,
+        include_popular_pages: bool = True,
+        include_trending_pages: bool = True,
+        include_stale_pages: bool = True,
+    ) -> SpaceAnalyticsResponse:
+        """Get aggregated analytics for a Confluence space.
+
+        Analyzes all pages in a space to provide insights on popular content,
+        trending pages, and stale content that may need attention.
+
+        Args:
+            space_key: The key of the space to analyze (e.g., 'DEV', 'TEAM')
+            period_days: Analysis period in days. If None, uses config default (30).
+            limit: Maximum number of pages to return in each category (default: 10)
+            stale_threshold_days: Days without views to consider a page stale (default: 90)
+            include_summary: Whether to include space-level summary statistics
+            include_popular_pages: Whether to include top pages by view count
+            include_trending_pages: Whether to include pages with increasing views
+            include_stale_pages: Whether to include pages that haven't been viewed
+
+        Returns:
+            SpaceAnalyticsResponse with space insights
+
+        Raises:
+            AnalyticsNotAvailableError: If analytics API is not available (Server/DC)
+        """
+        # Check Cloud availability
+        if not self.config.is_cloud:
+            raise AnalyticsNotAvailableError(
+                "Confluence Analytics API is only available on Cloud instances. "
+                "Server/Data Center deployments do not support this feature."
+            )
+
+        # Load config defaults
+        config = AnalyticsConfig.from_env()
+        if period_days is None:
+            period_days = config.period_days
+
+        # Calculate date range
+        now = datetime.now(tz=timezone.utc)
+        from_date = (now - timedelta(days=period_days)).strftime("%Y-%m-%d")
+        to_date = now.strftime("%Y-%m-%d")
+
+        # Get space info
+        space_name = None
+        try:
+            space = self.confluence.get_space(space_key, expand="description.plain")
+            if space:
+                space_name = space.get("name")
+        except Exception as e:
+            logger.debug(f"Could not fetch space info for {space_key}: {e}")
+
+        # Get all pages in the space
+        try:
+            # Use CQL to find all pages in the space
+            cql = f'space="{space_key}" AND type=page'
+            pages_result = self.confluence.cql(cql, limit=500, expand="version")
+            all_pages = pages_result.get("results", [])
+        except Exception as e:
+            logger.error(f"Error fetching pages for space {space_key}: {e}")
+            all_pages = []
+
+        total_pages = len(all_pages)
+
+        # Collect analytics for each page
+        page_analytics: list[dict] = []
+        for page in all_pages:
+            page_id = page.get("content", {}).get("id") or page.get("id")
+            page_title = page.get("content", {}).get("title") or page.get("title")
+
+            if not page_id:
+                continue
+
+            try:
+                # Get view data
+                views_response = self.get_page_views(
+                    page_id=str(page_id),
+                    from_date=from_date,
+                    include_viewers=True,
+                )
+
+                # Calculate engagement score
+                total_views = views_response.total_views
+                unique_viewers = views_response.unique_viewers
+
+                # Estimate days since last view
+                if total_views > 0:
+                    days_since_last_view = max(0, period_days // (total_views + 1))
+                else:
+                    days_since_last_view = period_days  # No views = stale
+
+                engagement = self._calculate_engagement_score(
+                    total_views=total_views,
+                    unique_viewers=unique_viewers,
+                    days_since_last_view=days_since_last_view,
+                    period_days=period_days,
+                )
+
+                # Calculate velocity
+                velocity = self._calculate_view_velocity(
+                    page_id=str(page_id),
+                    period_days=period_days,
+                )
+
+                # Determine staleness
+                if days_since_last_view <= 7:
+                    staleness_status = "active"
+                elif days_since_last_view <= stale_threshold_days:
+                    staleness_status = "stale"
+                else:
+                    staleness_status = "abandoned"
+
+                page_analytics.append({
+                    "page_id": str(page_id),
+                    "page_title": page_title or "Untitled",
+                    "total_views": total_views,
+                    "unique_viewers": unique_viewers,
+                    "engagement_score": engagement.value,
+                    "trend": velocity.trend,
+                    "change_percent": velocity.change_percent,
+                    "staleness_status": staleness_status,
+                    "days_since_last_view": days_since_last_view,
+                })
+
+            except Exception as e:
+                logger.debug(f"Could not get analytics for page {page_id}: {e}")
+                continue
+
+        # Build response
+        popular_pages: list[SpacePageSummary] = []
+        trending_pages: list[SpacePageSummary] = []
+        stale_pages: list[SpacePageSummary] = []
+        summary: SpaceSummary | None = None
+
+        # Calculate summary if requested
+        if include_summary and page_analytics:
+            total_views = sum(p["total_views"] for p in page_analytics)
+            total_unique_viewers = sum(p["unique_viewers"] for p in page_analytics)
+            avg_views = total_views / len(page_analytics) if page_analytics else 0
+            avg_engagement = (
+                sum(p["engagement_score"] for p in page_analytics) / len(page_analytics)
+                if page_analytics
+                else 0
+            )
+            active_count = sum(
+                1 for p in page_analytics if p["staleness_status"] == "active"
+            )
+            stale_count = sum(
+                1 for p in page_analytics if p["staleness_status"] == "stale"
+            )
+            abandoned_count = sum(
+                1 for p in page_analytics if p["staleness_status"] == "abandoned"
+            )
+
+            summary = SpaceSummary(
+                total_pages=total_pages,
+                pages_analyzed=len(page_analytics),
+                total_views=total_views,
+                total_unique_viewers=total_unique_viewers,
+                average_views_per_page=avg_views,
+                average_engagement_score=avg_engagement,
+                active_pages_count=active_count,
+                stale_pages_count=stale_count,
+                abandoned_pages_count=abandoned_count,
+            )
+
+        # Get popular pages (sorted by views)
+        if include_popular_pages:
+            sorted_by_views = sorted(
+                page_analytics, key=lambda x: x["total_views"], reverse=True
+            )
+            for p in sorted_by_views[:limit]:
+                popular_pages.append(
+                    SpacePageSummary(
+                        page_id=p["page_id"],
+                        page_title=p["page_title"],
+                        total_views=p["total_views"],
+                        unique_viewers=p["unique_viewers"],
+                        engagement_score=p["engagement_score"],
+                    )
+                )
+
+        # Get trending pages (increasing velocity)
+        if include_trending_pages:
+            trending = [
+                p for p in page_analytics if p["trend"] == "increasing"
+            ]
+            sorted_trending = sorted(
+                trending, key=lambda x: x["change_percent"], reverse=True
+            )
+            for p in sorted_trending[:limit]:
+                trending_pages.append(
+                    SpacePageSummary(
+                        page_id=p["page_id"],
+                        page_title=p["page_title"],
+                        total_views=p["total_views"],
+                        unique_viewers=p["unique_viewers"],
+                        trend=p["trend"],
+                        change_percent=p["change_percent"],
+                    )
+                )
+
+        # Get stale pages
+        if include_stale_pages:
+            stale = [
+                p
+                for p in page_analytics
+                if p["staleness_status"] in ["stale", "abandoned"]
+            ]
+            sorted_stale = sorted(
+                stale, key=lambda x: x["days_since_last_view"], reverse=True
+            )
+            for p in sorted_stale[:limit]:
+                stale_pages.append(
+                    SpacePageSummary(
+                        page_id=p["page_id"],
+                        page_title=p["page_title"],
+                        total_views=p["total_views"],
+                        unique_viewers=p["unique_viewers"],
+                        staleness_status=p["staleness_status"],
+                        days_since_last_view=p["days_since_last_view"],
+                    )
+                )
+
+        return SpaceAnalyticsResponse(
+            space_key=space_key,
+            space_name=space_name,
+            period_days=period_days,
+            summary=summary,
+            popular_pages=popular_pages,
+            trending_pages=trending_pages,
+            stale_pages=stale_pages,
+            from_date=from_date,
+            to_date=to_date,
         )
