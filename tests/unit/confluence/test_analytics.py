@@ -4,11 +4,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mcp_atlassian.confluence.analytics import AnalyticsMixin
+from mcp_atlassian.confluence.analytics import AVAILABLE_METRICS, AnalyticsMixin
+from mcp_atlassian.confluence.config import AnalyticsConfig
 from mcp_atlassian.models.confluence import (
     AnalyticsNotAvailableError,
+    EngagementScoreMetric,
+    PageAnalyticsBatchResponse,
+    PageAnalyticsResponse,
     PageViewsBatchResponse,
     PageViewsResponse,
+    StalenessMetric,
+    ViewerDiversityMetric,
+    ViewVelocityMetric,
 )
 
 
@@ -308,3 +315,519 @@ class TestAnalyticsNotAvailableError:
             raise AnalyticsNotAvailableError("Cloud only feature")
 
         assert "Cloud only" in str(exc_info.value)
+
+
+# =============================================================================
+# Phase 4: Page Analytics Metric Tests
+# =============================================================================
+
+
+class TestAnalyticsConfig:
+    """Tests for the AnalyticsConfig class."""
+
+    def test_default_config(self):
+        """Test default configuration values."""
+        config = AnalyticsConfig()
+        assert config.period_days == 30
+        assert "engagement_score" in config.metrics
+        assert "staleness" in config.metrics
+
+    def test_config_from_env_defaults(self):
+        """Test config from environment with defaults."""
+        with patch.dict("os.environ", {}, clear=True):
+            config = AnalyticsConfig.from_env()
+            assert config.period_days == 30
+            assert config.metrics == ["engagement_score", "staleness"]
+
+    def test_config_from_env_custom(self):
+        """Test config from environment with custom values."""
+        with patch.dict(
+            "os.environ",
+            {
+                "CONFLUENCE_ANALYTICS_METRICS": "engagement_score,view_velocity",
+                "CONFLUENCE_ANALYTICS_PERIOD_DAYS": "60",
+            },
+        ):
+            config = AnalyticsConfig.from_env()
+            assert config.period_days == 60
+            assert "engagement_score" in config.metrics
+            assert "view_velocity" in config.metrics
+
+    def test_config_from_env_invalid_period(self):
+        """Test config handles invalid period_days gracefully."""
+        with patch.dict(
+            "os.environ",
+            {"CONFLUENCE_ANALYTICS_PERIOD_DAYS": "not_a_number"},
+        ):
+            config = AnalyticsConfig.from_env()
+            assert config.period_days == 30  # Falls back to default
+
+
+class TestEngagementScoreMetric:
+    """Tests for the EngagementScoreMetric model."""
+
+    def test_metric_creation(self):
+        """Test creating an engagement score metric."""
+        metric = EngagementScoreMetric(
+            value=75,
+            components={"view_score": 80, "viewer_score": 70, "recency_score": 75},
+        )
+        assert metric.value == 75
+        assert metric.components["view_score"] == 80
+
+    def test_metric_to_simplified_dict(self):
+        """Test serialization."""
+        metric = EngagementScoreMetric(
+            value=50,
+            components={"view_score": 60, "viewer_score": 40, "recency_score": 50},
+        )
+        result = metric.to_simplified_dict()
+        assert result["value"] == 50
+        assert "components" in result
+
+    def test_metric_value_bounds(self):
+        """Test that values are within 0-100."""
+        metric = EngagementScoreMetric(value=0, components={})
+        assert metric.value == 0
+
+        metric = EngagementScoreMetric(value=100, components={})
+        assert metric.value == 100
+
+
+class TestViewVelocityMetric:
+    """Tests for the ViewVelocityMetric model."""
+
+    def test_metric_creation(self):
+        """Test creating a view velocity metric."""
+        metric = ViewVelocityMetric(
+            trend="increasing",
+            current_period_views=150,
+            previous_period_views=100,
+            change_percent=50.0,
+        )
+        assert metric.trend == "increasing"
+        assert metric.change_percent == 50.0
+
+    def test_metric_to_simplified_dict(self):
+        """Test serialization rounds change_percent."""
+        metric = ViewVelocityMetric(
+            trend="stable",
+            current_period_views=100,
+            previous_period_views=98,
+            change_percent=2.0408163265306123,
+        )
+        result = metric.to_simplified_dict()
+        assert result["change_percent"] == 2.04  # Rounded to 2 decimals
+
+    def test_trend_values(self):
+        """Test different trend values."""
+        for trend in ["increasing", "decreasing", "stable"]:
+            metric = ViewVelocityMetric(
+                trend=trend,
+                current_period_views=0,
+                previous_period_views=0,
+                change_percent=0.0,
+            )
+            assert metric.trend == trend
+
+
+class TestStalenessMetric:
+    """Tests for the StalenessMetric model."""
+
+    def test_metric_creation(self):
+        """Test creating a staleness metric."""
+        metric = StalenessMetric(
+            days_since_last_view=5,
+            days_since_last_edit=10,
+            status="active",
+            stale_threshold_days=90,
+        )
+        assert metric.status == "active"
+        assert metric.days_since_last_view == 5
+
+    def test_metric_to_simplified_dict(self):
+        """Test serialization with optional fields."""
+        metric = StalenessMetric(
+            days_since_last_view=None,  # Never viewed
+            days_since_last_edit=30,
+            status="abandoned",
+            stale_threshold_days=90,
+        )
+        result = metric.to_simplified_dict()
+        assert result["status"] == "abandoned"
+        assert "days_since_last_view" not in result  # None excluded
+        assert result["days_since_last_edit"] == 30
+
+    def test_status_values(self):
+        """Test different status values."""
+        for status in ["active", "stale", "abandoned"]:
+            metric = StalenessMetric(
+                status=status,
+                stale_threshold_days=90,
+            )
+            assert metric.status == status
+
+
+class TestViewerDiversityMetric:
+    """Tests for the ViewerDiversityMetric model."""
+
+    def test_metric_creation(self):
+        """Test creating a viewer diversity metric."""
+        metric = ViewerDiversityMetric(
+            ratio=0.5,
+            interpretation="moderate",
+            unique_viewers=25,
+            total_views=50,
+        )
+        assert metric.ratio == 0.5
+        assert metric.interpretation == "moderate"
+
+    def test_metric_to_simplified_dict(self):
+        """Test serialization rounds ratio."""
+        metric = ViewerDiversityMetric(
+            ratio=0.333333333,
+            interpretation="moderate",
+            unique_viewers=10,
+            total_views=30,
+        )
+        result = metric.to_simplified_dict()
+        assert result["ratio"] == 0.333  # Rounded to 3 decimals
+
+    def test_interpretation_values(self):
+        """Test different interpretation values."""
+        for interp in ["narrow", "moderate", "broad"]:
+            metric = ViewerDiversityMetric(
+                ratio=0.5,
+                interpretation=interp,
+                unique_viewers=0,
+                total_views=0,
+            )
+            assert metric.interpretation == interp
+
+
+class TestPageAnalyticsResponse:
+    """Tests for the PageAnalyticsResponse model."""
+
+    def test_response_creation(self):
+        """Test creating a page analytics response."""
+        response = PageAnalyticsResponse(
+            page_id="123456",
+            page_title="Test Page",
+            period_days=30,
+            metrics={
+                "engagement_score": EngagementScoreMetric(
+                    value=75, components={"view_score": 80}
+                )
+            },
+        )
+        assert response.page_id == "123456"
+        assert response.period_days == 30
+
+    def test_response_to_simplified_dict(self):
+        """Test serialization includes nested metrics."""
+        response = PageAnalyticsResponse(
+            page_id="123",
+            period_days=30,
+            metrics={
+                "staleness": StalenessMetric(
+                    status="active",
+                    stale_threshold_days=90,
+                )
+            },
+            raw_data={"total_views": 100},
+        )
+        result = response.to_simplified_dict()
+        assert result["page_id"] == "123"
+        assert "staleness" in result["metrics"]
+        assert result["raw_data"]["total_views"] == 100
+
+
+class TestPageAnalyticsBatchResponse:
+    """Tests for the PageAnalyticsBatchResponse model."""
+
+    def test_batch_response_creation(self):
+        """Test creating a batch analytics response."""
+        pages = [
+            PageAnalyticsResponse(page_id="1", period_days=30, metrics={}),
+            PageAnalyticsResponse(page_id="2", period_days=30, metrics={}),
+        ]
+        response = PageAnalyticsBatchResponse(
+            pages=pages,
+            total_count=3,
+            success_count=2,
+            error_count=1,
+            errors=[{"page_id": "3", "error": "Not found"}],
+            period_days=30,
+            metrics_calculated=["engagement_score"],
+        )
+        assert response.total_count == 3
+        assert response.success_count == 2
+        assert len(response.pages) == 2
+
+    def test_batch_response_to_simplified_dict(self):
+        """Test batch response serialization."""
+        pages = [PageAnalyticsResponse(page_id="1", period_days=30, metrics={})]
+        response = PageAnalyticsBatchResponse(
+            pages=pages,
+            total_count=1,
+            success_count=1,
+            error_count=0,
+            period_days=30,
+            metrics_calculated=["staleness"],
+        )
+        result = response.to_simplified_dict()
+        assert result["total_count"] == 1
+        assert result["metrics_calculated"] == ["staleness"]
+        assert "errors" not in result  # Empty errors excluded
+
+
+class TestMetricCalculators:
+    """Tests for the metric calculation methods."""
+
+    def test_calculate_engagement_score_high(self):
+        """Test high engagement score calculation."""
+        mixin = MagicMock()
+        result = AnalyticsMixin._calculate_engagement_score(
+            mixin,
+            total_views=100,
+            unique_viewers=20,
+            days_since_last_view=0,
+            period_days=30,
+        )
+        assert result.value > 50  # Should be reasonably high
+        assert result.components["recency_score"] == 100  # Recent view
+
+    def test_calculate_engagement_score_zero_views(self):
+        """Test engagement score with no views."""
+        mixin = MagicMock()
+        result = AnalyticsMixin._calculate_engagement_score(
+            mixin,
+            total_views=0,
+            unique_viewers=0,
+            days_since_last_view=None,
+            period_days=30,
+        )
+        assert result.value == 0
+        assert result.components["view_score"] == 0
+        assert result.components["recency_score"] == 0
+
+    def test_calculate_staleness_active(self):
+        """Test staleness calculation for active page."""
+        mixin = MagicMock()
+        mixin.confluence = MagicMock()
+        mixin.confluence.get_page_by_id.return_value = None
+
+        result = AnalyticsMixin._calculate_staleness(
+            mixin,
+            page_id="123",
+            days_since_last_view=3,
+        )
+        assert result.status == "active"
+
+    def test_calculate_staleness_stale(self):
+        """Test staleness calculation for stale page."""
+        mixin = MagicMock()
+        mixin.confluence = MagicMock()
+        mixin.confluence.get_page_by_id.return_value = None
+
+        result = AnalyticsMixin._calculate_staleness(
+            mixin,
+            page_id="123",
+            days_since_last_view=45,
+        )
+        assert result.status == "stale"
+
+    def test_calculate_staleness_abandoned(self):
+        """Test staleness calculation for abandoned page."""
+        mixin = MagicMock()
+        mixin.confluence = MagicMock()
+        mixin.confluence.get_page_by_id.return_value = None
+
+        result = AnalyticsMixin._calculate_staleness(
+            mixin,
+            page_id="123",
+            days_since_last_view=120,
+        )
+        assert result.status == "abandoned"
+
+    def test_calculate_staleness_never_viewed(self):
+        """Test staleness calculation for never-viewed page."""
+        mixin = MagicMock()
+        mixin.confluence = MagicMock()
+        mixin.confluence.get_page_by_id.return_value = None
+
+        result = AnalyticsMixin._calculate_staleness(
+            mixin,
+            page_id="123",
+            days_since_last_view=None,
+        )
+        assert result.status == "abandoned"
+
+    def test_calculate_viewer_diversity_narrow(self):
+        """Test viewer diversity calculation - narrow audience."""
+        mixin = MagicMock()
+        result = AnalyticsMixin._calculate_viewer_diversity(
+            mixin,
+            total_views=100,
+            unique_viewers=10,  # 10% ratio
+        )
+        assert result.interpretation == "narrow"
+        assert result.ratio == 0.1
+
+    def test_calculate_viewer_diversity_moderate(self):
+        """Test viewer diversity calculation - moderate audience."""
+        mixin = MagicMock()
+        result = AnalyticsMixin._calculate_viewer_diversity(
+            mixin,
+            total_views=100,
+            unique_viewers=50,  # 50% ratio
+        )
+        assert result.interpretation == "moderate"
+        assert result.ratio == 0.5
+
+    def test_calculate_viewer_diversity_broad(self):
+        """Test viewer diversity calculation - broad audience."""
+        mixin = MagicMock()
+        result = AnalyticsMixin._calculate_viewer_diversity(
+            mixin,
+            total_views=100,
+            unique_viewers=80,  # 80% ratio
+        )
+        assert result.interpretation == "broad"
+        assert result.ratio == 0.8
+
+    def test_calculate_viewer_diversity_zero_views(self):
+        """Test viewer diversity with no views."""
+        mixin = MagicMock()
+        result = AnalyticsMixin._calculate_viewer_diversity(
+            mixin,
+            total_views=0,
+            unique_viewers=0,
+        )
+        assert result.interpretation == "narrow"
+        assert result.ratio == 0.0
+
+
+class TestGetPageAnalytics:
+    """Tests for the get_page_analytics method."""
+
+    def test_get_page_analytics_success(self):
+        """Test successful page analytics retrieval."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = True
+        mixin.confluence = MagicMock()
+        mixin.confluence.get_page_by_id.return_value = None
+
+        # Mock get_page_views
+        mixin.get_page_views = MagicMock(
+            return_value=PageViewsResponse(
+                page_id="123",
+                page_title="Test Page",
+                total_views=50,
+                unique_viewers=10,
+            )
+        )
+
+        with patch.object(AnalyticsConfig, "from_env") as mock_config:
+            mock_config.return_value = AnalyticsConfig(
+                metrics=["engagement_score", "staleness"],
+                period_days=30,
+            )
+
+            result = AnalyticsMixin.get_page_analytics(
+                mixin,
+                page_id="123",
+                include_raw_data=True,
+            )
+
+            assert result.page_id == "123"
+            assert result.page_title == "Test Page"
+            assert result.period_days == 30
+            assert "engagement_score" in result.metrics
+            assert "staleness" in result.metrics
+            assert result.raw_data is not None
+            assert result.raw_data["total_views"] == 50
+
+    def test_get_page_analytics_custom_metrics(self):
+        """Test analytics with custom metrics."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = True
+        mixin.confluence = MagicMock()
+        mixin.confluence.get_page_by_id.return_value = None
+
+        mixin.get_page_views = MagicMock(
+            return_value=PageViewsResponse(
+                page_id="123",
+                total_views=100,
+                unique_viewers=50,
+            )
+        )
+
+        with patch.object(AnalyticsConfig, "from_env") as mock_config:
+            mock_config.return_value = AnalyticsConfig()
+
+            result = AnalyticsMixin.get_page_analytics(
+                mixin,
+                page_id="123",
+                metrics=["viewer_diversity"],
+                period_days=60,
+            )
+
+            assert result.period_days == 60
+            assert "viewer_diversity" in result.metrics
+            assert "engagement_score" not in result.metrics
+
+    def test_batch_get_page_analytics_success(self):
+        """Test batch analytics retrieval."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = True
+
+        def mock_get_analytics(page_id, metrics=None, period_days=None, **kwargs):
+            return PageAnalyticsResponse(
+                page_id=page_id,
+                period_days=period_days or 30,
+                metrics={"engagement_score": EngagementScoreMetric(value=50, components={})},
+            )
+
+        mixin.get_page_analytics = mock_get_analytics
+
+        with patch.object(AnalyticsConfig, "from_env") as mock_config:
+            mock_config.return_value = AnalyticsConfig()
+
+            result = AnalyticsMixin.batch_get_page_analytics(
+                mixin,
+                page_ids=["1", "2", "3"],
+                metrics=["engagement_score"],
+            )
+
+            assert result.total_count == 3
+            assert result.success_count == 3
+            assert result.error_count == 0
+            assert len(result.pages) == 3
+
+    def test_batch_get_page_analytics_server_error(self):
+        """Test batch analytics fails on Server/DC."""
+        mixin = MagicMock()
+        mixin.config = MagicMock()
+        mixin.config.is_cloud = False
+
+        with pytest.raises(AnalyticsNotAvailableError):
+            AnalyticsMixin.batch_get_page_analytics(
+                mixin,
+                page_ids=["1", "2"],
+            )
+
+
+class TestAvailableMetrics:
+    """Tests for the available metrics list."""
+
+    def test_available_metrics_defined(self):
+        """Test that AVAILABLE_METRICS is properly defined."""
+        assert "engagement_score" in AVAILABLE_METRICS
+        assert "view_velocity" in AVAILABLE_METRICS
+        assert "staleness" in AVAILABLE_METRICS
+        assert "viewer_diversity" in AVAILABLE_METRICS
+        assert len(AVAILABLE_METRICS) == 4
