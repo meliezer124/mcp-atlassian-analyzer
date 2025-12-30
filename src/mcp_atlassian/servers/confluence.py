@@ -21,7 +21,10 @@ confluence_mcp = FastMCP(
 )
 
 
-@confluence_mcp.tool(tags={"confluence", "read"})
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Search Content", "readOnlyHint": True},
+)
 async def search(
     ctx: Context,
     query: Annotated[
@@ -110,7 +113,10 @@ async def search(
     return json.dumps(search_results, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "read"})
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Get Page", "readOnlyHint": True},
+)
 async def get_page(
     ctx: Context,
     page_id: Annotated[
@@ -226,7 +232,10 @@ async def get_page(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "read"})
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Get Page Children", "readOnlyHint": True},
+)
 async def get_page_children(
     ctx: Context,
     parent_id: Annotated[
@@ -245,7 +254,7 @@ async def get_page_children(
     limit: Annotated[
         int,
         Field(
-            description="Maximum number of child pages to return (1-50)",
+            description="Maximum number of child items to return (1-50)",
             default=25,
             ge=1,
             le=50,
@@ -269,20 +278,28 @@ async def get_page_children(
         int,
         Field(description="Starting index for pagination (0-based)", default=0, ge=0),
     ] = 0,
+    include_folders: Annotated[
+        bool,
+        Field(
+            description="Whether to include child folders in addition to child pages",
+            default=True,
+        ),
+    ] = True,
 ) -> str:
-    """Get child pages of a specific Confluence page.
+    """Get child pages and folders of a specific Confluence page.
 
     Args:
         ctx: The FastMCP context.
         parent_id: The ID of the parent page.
         expand: Fields to expand.
-        limit: Maximum number of child pages.
+        limit: Maximum number of child items.
         include_content: Whether to include page content.
         convert_to_markdown: Convert content to markdown if include_content is true.
         start: Starting index for pagination.
+        include_folders: Whether to include child folders (default: True).
 
     Returns:
-        JSON string representing a list of child page objects.
+        JSON string representing a list of child page and folder objects.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
     if include_content and "body" not in expand:
@@ -295,6 +312,7 @@ async def get_page_children(
             limit=limit,
             expand=expand,
             convert_to_markdown=convert_to_markdown,
+            include_folders=include_folders,
         )
         child_pages = [page.to_simplified_dict() for page in pages]
         result = {
@@ -314,7 +332,10 @@ async def get_page_children(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "read"})
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Get Comments", "readOnlyHint": True},
+)
 async def get_comments(
     ctx: Context,
     page_id: Annotated[
@@ -343,7 +364,10 @@ async def get_comments(
     return json.dumps(formatted_comments, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "read"})
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Get Labels", "readOnlyHint": True},
+)
 async def get_labels(
     ctx: Context,
     page_id: Annotated[
@@ -372,7 +396,10 @@ async def get_labels(
     return json.dumps(formatted_labels, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "read", "analytics"})
+@confluence_mcp.tool(
+    tags={"confluence", "read", "analytics"},
+    annotations={"title": "Get Page Views", "readOnlyHint": True},
+)
 async def get_page_views(
     ctx: Context,
     page_id: Annotated[
@@ -493,7 +520,10 @@ async def get_page_views(
         )
 
 
-@confluence_mcp.tool(tags={"confluence", "read", "analytics"})
+@confluence_mcp.tool(
+    tags={"confluence", "read", "analytics"},
+    annotations={"title": "Get Page Analytics", "readOnlyHint": True},
+)
 async def get_page_analytics(
     ctx: Context,
     page_id: Annotated[
@@ -639,7 +669,10 @@ async def get_page_analytics(
         )
 
 
-@confluence_mcp.tool(tags={"confluence", "read", "analytics"})
+@confluence_mcp.tool(
+    tags={"confluence", "read", "analytics"},
+    annotations={"title": "Get Space Analytics", "readOnlyHint": True},
+)
 async def get_space_analytics(
     ctx: Context,
     space_key: Annotated[
@@ -769,7 +802,10 @@ async def get_space_analytics(
         )
 
 
-@confluence_mcp.tool(tags={"confluence", "write"})
+@confluence_mcp.tool(
+    tags={"confluence", "write"},
+    annotations={"title": "Add Label", "destructiveHint": True},
+)
 @check_write_access
 async def add_label(
     ctx: Context,
@@ -795,7 +831,10 @@ async def add_label(
     return json.dumps(formatted_labels, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "write"})
+@confluence_mcp.tool(
+    tags={"confluence", "write"},
+    annotations={"title": "Create Page", "destructiveHint": True},
+)
 @check_write_access
 async def create_page(
     ctx: Context,
@@ -887,7 +926,10 @@ async def create_page(
     )
 
 
-@confluence_mcp.tool(tags={"confluence", "write"})
+@confluence_mcp.tool(
+    tags={"confluence", "write"},
+    annotations={"title": "Update Page", "destructiveHint": True},
+)
 @check_write_access
 async def update_page(
     ctx: Context,
@@ -981,7 +1023,10 @@ async def update_page(
     )
 
 
-@confluence_mcp.tool(tags={"confluence", "write"})
+@confluence_mcp.tool(
+    tags={"confluence", "write"},
+    annotations={"title": "Delete Page", "destructiveHint": True},
+)
 @check_write_access
 async def delete_page(
     ctx: Context,
@@ -1023,7 +1068,10 @@ async def delete_page(
     return json.dumps(response, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "write"})
+@confluence_mcp.tool(
+    tags={"confluence", "write"},
+    annotations={"title": "Add Comment", "destructiveHint": True},
+)
 @check_write_access
 async def add_comment(
     ctx: Context,
@@ -1073,7 +1121,10 @@ async def add_comment(
     return json.dumps(response, indent=2, ensure_ascii=False)
 
 
-@confluence_mcp.tool(tags={"confluence", "read"})
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Search User", "readOnlyHint": True},
+)
 async def search_user(
     ctx: Context,
     query: Annotated[
